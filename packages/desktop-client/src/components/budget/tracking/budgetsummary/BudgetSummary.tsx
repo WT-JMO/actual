@@ -250,24 +250,12 @@ export function BudgetSummary({ month }: BudgetSummaryProps) {
           </SpaceBetween>
         )}
 
-        {collapsed ? (
-          <View
-            style={{
-              alignItems: 'center',
-              padding: '10px 20px',
-              justifyContent: 'space-between',
-              backgroundColor: theme.budgetHeaderCurrentMonth,
-              borderTop: '1px solid ' + theme.tableBorder,
-            }}
-          >
-            <Saved projected={month >= currentMonth} />
-          </View>
-        ) : (
-          <Saved
-            projected={month >= currentMonth}
-            style={{ marginTop: 13, marginBottom: 20 }}
-          />
-        )}
+	{!collapsed && (
+	  <Saved
+	    projected={month >= currentMonth}
+	    style={{ marginTop: 13, marginBottom: 20 }}
+	  />
+	)}
       </SheetNameProvider>
     </View>
   );
