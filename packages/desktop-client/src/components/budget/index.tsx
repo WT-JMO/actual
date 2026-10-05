@@ -50,7 +50,7 @@ export function Budget() {
   );
   const accountOptions = useMemo(
     () => [
-      ['', 'Toutes les sociétés'] as [string, string],
+      ['', 'All companies'] as [string, string],
       ...accounts
         .filter(account => !account.closed && !account.offbudget)
         .map(account => [account.id, account.name] as [string, string]),
@@ -302,14 +302,14 @@ export function Budget() {
             }}
           >
             <Text style={{ fontWeight: 600 }}>
-              Société
+              Company
             </Text>
 
             <Select
-              aria-label="Sélectionner une société"
+              aria-label="Select company"
               options={accountOptions}
               value={selectedAccountId}
-              defaultLabel="Toutes les sociétés"
+              defaultLabel="All companies"
               onChange={value => setSelectedAccountId(value)}
             />
           </View>
