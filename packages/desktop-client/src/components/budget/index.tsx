@@ -1,4 +1,6 @@
 // @ts-strict-ignore
+import { Select } from '@actual-app/components/select';
+import { Text } from '@actual-app/components/text';
 import React, { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
 
@@ -28,6 +30,7 @@ import { useNavigate } from '#hooks/useNavigate';
 import { SheetNameProvider } from '#hooks/useSheetName';
 import { useSpreadsheet } from '#hooks/useSpreadsheet';
 import { useSyncedPref } from '#hooks/useSyncedPref';
+import { useAccounts } from '#hooks/useAccounts';
 
 import { AutoSizingBudgetTable } from './DynamicBudgetTable';
 import * as envelopeBudget from './envelope/EnvelopeBudgetComponents';
@@ -40,8 +43,19 @@ export function Budget() {
   const currentMonth = monthUtils.currentMonth();
   const spreadsheet = useSpreadsheet();
   const navigate = useNavigate();
+  const { data: accounts = [] } = useAccounts();
+  const [selectedAccountId, setSelectedAccountId] = useState('');
   const [summaryCollapsed, setSummaryCollapsedPref] = useLocalPref(
     'budget.summaryCollapsed',
+  );
+  const accountOptions = useMemo(
+    () => [
+      ['', 'Toutes les sociétés'] as [string, string],
+      ...accounts
+        .filter(account => !account.closed && !account.offbudget)
+        .map(account => [account.id, account.name] as [string, string]),
+    ],
+    [accounts],
   );
   const [startMonthPref, setStartMonthPref] = useLocalPref('budget.startMonth');
   const startMonth = startMonthPref || currentMonth;
@@ -66,14 +80,35 @@ export function Budget() {
         spreadsheet,
         { start, end },
         startMonth,
+        selectedAccountId || undefined,
       );
-
       setInitialized(true);
     }
 
     void run();
   });
   useEffect(() => init(), []);
+
+  useEffect(() => {
+    if (!initialized || budgetType !== 'tracking') {
+      return;
+    }
+
+    void prewarmAllMonths(
+      budgetType,
+      spreadsheet,
+      bounds,
+      startMonth,
+      selectedAccountId || undefined,
+    );
+  }, [
+    selectedAccountId,
+    initialized,
+    budgetType,
+    spreadsheet,
+    bounds,
+    startMonth,
+  ]);
 
   const loadBoundBudgets = useEffectEvent(() => {
     void send('get-budget-bounds').then(({ start, end }) => {
@@ -256,7 +291,33 @@ export function Budget() {
           overflow: 'hidden',
         }}
       >
-        <View style={{ flex: 1 }}>{table}</View>
+        {budgetType === 'tracking' && (
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+              paddingTop: 8,
+              paddingBottom: 8,
+            }}
+          >
+            <Text style={{ fontWeight: 600 }}>
+              Société
+            </Text>
+
+            <Select
+              aria-label="Sélectionner une société"
+              options={accountOptions}
+              value={selectedAccountId}
+              defaultLabel="Toutes les sociétés"
+              onChange={value => setSelectedAccountId(value)}
+            />
+          </View>
+        )}
+
+        <View style={{ flex: 1 }}>
+          {table}
+        </View>
       </View>
     </SheetNameProvider>
   );

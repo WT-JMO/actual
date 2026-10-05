@@ -62,6 +62,16 @@ function makeSpreadsheet() {
       LRUValueCache.set(name, value);
     }
 
+    updateCache(name: string, value: CellCacheValue): void {
+      LRUValueCache.set(name, value);
+      cellCache[name] = Promise.resolve(value);
+
+      const observers = cellObservers[name];
+      if (observers) {
+        observers.forEach(func => func(value));
+      }
+    }
+
     listen(): () => void {
       return listen('cells-changed', event => {
         if (!observersDisabled) {

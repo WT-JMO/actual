@@ -182,16 +182,20 @@ export async function prewarmMonth(
   budgetType: SyncedPrefs['budgetType'],
   spreadsheet: ReturnType<typeof useSpreadsheet>,
   month: string,
+  accountId?: string,
 ) {
   const method: keyof Handlers =
     budgetType === 'tracking'
       ? 'tracking-budget-month'
       : 'envelope-budget-month';
 
-  const values = await send(method, { month });
+  const values = await send(method, {
+    month,
+    ...(budgetType === 'tracking' && accountId ? { accountId } : {}),
+  });
 
   for (const value of values) {
-    spreadsheet.prewarmCache(value.name, value);
+    spreadsheet.updateCache(value.name, value);
   }
 }
 
@@ -200,6 +204,7 @@ export async function prewarmAllMonths(
   spreadsheet: ReturnType<typeof useSpreadsheet>,
   bounds: { start: string; end: string },
   startMonth: string,
+  accountId?: string,
 ) {
   const numMonths = 3;
 
@@ -211,6 +216,8 @@ export async function prewarmAllMonths(
   const months = monthUtils.rangeInclusive(bounds.start, bounds.end);
 
   await Promise.all(
-    months.map(month => prewarmMonth(budgetType, spreadsheet, month)),
+    months.map(month =>
+      prewarmMonth(budgetType, spreadsheet, month, accountId),
+    ),
   );
 }

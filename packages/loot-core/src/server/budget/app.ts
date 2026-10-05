@@ -260,39 +260,213 @@ async function envelopeBudgetMonth({ month }: { month: string }) {
   return values;
 }
 
-async function trackingBudgetMonth({ month }: { month: string }) {
+async function trackingBudgetMonth({
+  month,
+  accountId,
+}: {
+  month: string;
+  accountId?: string;
+}) {
   const groups = await db.getCategoriesGrouped();
   const sheetName = monthUtils.sheetForMonth(month);
+  const { start, end } = monthUtils.bounds(month);
 
-  function value(name: string) {
+  function rawValue(name: string) {
     const v = sheet.getCellValue(sheetName, name);
-    return { value: v === '' ? 0 : v, name: resolveName(sheetName, name) };
+    return v === '' || v == null ? 0 : Number(v);
   }
+
+  function value(name: string, overrideValue?: number) {
+    const v = overrideValue ?? rawValue(name);
+
+    return {
+      value: v,
+      name: resolveName(sheetName, name),
+    };
+  }
+
+  function filteredAmount(categoryId: string) {
+    if (!accountId) {
+      return rawValue(`sum-amount-${categoryId}`);
+    }
+
+    const rows = db.runQuery<{ amount: number | null }>(
+      `
+        SELECT SUM(t.amount) AS amount
+        FROM v_transactions_internal_alive t
+        LEFT JOIN accounts a ON a.id = t.account
+        WHERE t.date >= ?
+          AND t.date <= ?
+          AND t.category = ?
+          AND a.offbudget = 0
+          AND t.account = ?
+      `,
+      [start, end, categoryId, accountId],
+      true,
+    );
+
+    return rows[0]?.amount ?? 0;
+  }
+
+  /*
+   * Sans filtre société, on conserve exactement
+   * le comportement natif d'Actual.
+   */
+  if (!accountId) {
+    let values = [
+      value('total-budgeted'),
+      value('total-budget-income'),
+      value('total-saved'),
+      value('total-income'),
+      value('total-spent'),
+      value('real-saved'),
+      value('total-leftover'),
+    ];
+
+    for (const group of groups) {
+      values = values.concat([
+        value(`group-budget-${group.id}`),
+        value(`group-sum-amount-${group.id}`),
+        value(`group-leftover-${group.id}`),
+      ]);
+
+      const categories = group.categories ?? [];
+
+      for (const cat of categories) {
+        values = values.concat([
+          value(`budget-${cat.id}`),
+          value(`sum-amount-${cat.id}`),
+          value(`leftover-${cat.id}`),
+          value(`goal-${cat.id}`),
+          value(`long-goal-${cat.id}`),
+        ]);
+
+        if (!group.is_income) {
+          values.push(value(`carryover-${cat.id}`));
+        }
+      }
+    }
+
+    return values;
+  }
+
+  /*
+   * Vue filtrée par société
+   */
+
+  let totalSpent = 0;
+  let totalLeftover = 0;
+  let totalIncome = 0;
+
+  const filteredGroupValues = new Map<
+    string,
+    {
+      spent: number;
+      leftover: number;
+    }
+  >();
+
+  const filteredCategoryValues = new Map<
+    string,
+    {
+      spent: number;
+      leftover: number;
+    }
+  >();
+
+  for (const group of groups) {
+    let groupSpent = 0;
+    let groupLeftover = 0;
+
+    const categories = group.categories ?? [];
+
+    for (const cat of categories) {
+      const spent = filteredAmount(cat.id);
+      const budgeted = rawValue(`budget-${cat.id}`);
+
+      /*
+       * Tracking budget :
+       *
+       * dépense :
+       *   balance = budget + montant
+       *
+       * revenu :
+       *   balance = budget - montant
+       */
+      const leftover = cat.is_income
+        ? budgeted - spent
+        : budgeted + spent;
+
+      filteredCategoryValues.set(cat.id, {
+        spent,
+        leftover,
+      });
+
+      if (!cat.hidden) {
+        groupSpent += spent;
+        groupLeftover += leftover;
+      }
+    }
+
+    filteredGroupValues.set(group.id, {
+      spent: groupSpent,
+      leftover: groupLeftover,
+    });
+
+    if (group.is_income) {
+      totalIncome += groupSpent;
+    } else if (!group.hidden) {
+      totalSpent += groupSpent;
+      totalLeftover += groupLeftover;
+    }
+  }
+
+  const realSaved = totalIncome - -totalSpent;
 
   let values = [
     value('total-budgeted'),
     value('total-budget-income'),
     value('total-saved'),
-    value('total-income'),
-    value('total-spent'),
-    value('real-saved'),
-    value('total-leftover'),
+
+    value('total-income', totalIncome),
+    value('total-spent', totalSpent),
+    value('real-saved', realSaved),
+    value('total-leftover', totalLeftover),
   ];
 
   for (const group of groups) {
+    const filteredGroup = filteredGroupValues.get(group.id);
+
     values = values.concat([
       value(`group-budget-${group.id}`),
-      value(`group-sum-amount-${group.id}`),
-      value(`group-leftover-${group.id}`),
+      value(
+        `group-sum-amount-${group.id}`,
+        filteredGroup?.spent ?? 0,
+      ),
+      value(
+        `group-leftover-${group.id}`,
+        filteredGroup?.leftover ?? 0,
+      ),
     ]);
 
     const categories = group.categories ?? [];
 
     for (const cat of categories) {
+      const filteredCategory = filteredCategoryValues.get(cat.id);
+
       values = values.concat([
         value(`budget-${cat.id}`),
-        value(`sum-amount-${cat.id}`),
-        value(`leftover-${cat.id}`),
+
+        value(
+          `sum-amount-${cat.id}`,
+          filteredCategory?.spent ?? 0,
+        ),
+
+        value(
+          `leftover-${cat.id}`,
+          filteredCategory?.leftover ?? 0,
+        ),
+
         value(`goal-${cat.id}`),
         value(`long-goal-${cat.id}`),
       ]);
