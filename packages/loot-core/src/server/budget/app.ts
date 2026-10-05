@@ -277,7 +277,14 @@ async function trackingBudgetMonth({
   }
 
   function value(name: string, overrideValue?: number) {
-    const v = overrideValue ?? rawValue(name);
+    const originalValue = sheet.getCellValue(sheetName, name);
+
+    const v =
+      overrideValue !== undefined
+        ? overrideValue
+        : originalValue === ''
+          ? 0
+          : originalValue;
 
     return {
       value: v,
