@@ -68,6 +68,7 @@ export type BudgetHandlers = {
   'budget/store-note-cleanups': typeof storeNoteCleanups;
   'budget/render-note-templates': typeof goalNoteActions.unparse;
   'budget/create-cleanup-group': typeof cleanupGroupActions.createCleanupGroup;
+  'budget/company-budget-action': typeof applyCompanyBudgetAction;
 };
 
 export const app = createApp<BudgetHandlers>();
@@ -182,6 +183,10 @@ app.method(
   'budget/create-cleanup-group',
   mutator(undoable(cleanupGroupActions.createCleanupGroup)),
 );
+app.method(
+  'budget/company-budget-action',
+  applyCompanyBudgetAction,
+);
 
 // Server must return AQL entities not the raw DB data
 async function getCategories({ hidden }: { hidden?: boolean } = {}) {
@@ -260,6 +265,203 @@ async function envelopeBudgetMonth({ month }: { month: string }) {
   }
 
   return values;
+}
+
+async function applyCompanyBudgetAction({
+  accountId,
+  categoryId,
+  month,
+  action,
+}: {
+  accountId: string;
+  categoryId: string;
+  month: string;
+  action:
+    | 'copy-single-last'
+    | 'set-single-3-avg'
+    | 'set-single-6-avg'
+    | 'set-single-12-avg'
+    | 'copy-until-year-end';
+}) {
+  async function getCompanyBudget(targetMonth: string) {
+    const rows = db.runQuery<{ amount: number | null }>(
+      `
+        SELECT amount
+        FROM company_budgets
+        WHERE account_id = ?
+          AND category_id = ?
+          AND month = ?
+      `,
+      [accountId, categoryId, targetMonth],
+      true,
+    );
+
+    return rows[0]?.amount ?? 0;
+  }
+
+  async function saveCompanyBudget(targetMonth: string, amount: number) {
+    db.runQuery(
+      `
+        INSERT INTO company_budgets (
+          account_id,
+          category_id,
+          month,
+          amount
+        )
+        VALUES (?, ?, ?, ?)
+
+        ON CONFLICT(account_id, category_id, month)
+        DO UPDATE SET amount = excluded.amount
+      `,
+      [accountId, categoryId, targetMonth, amount],
+      true,
+    );
+  }
+
+  if (action === 'copy-single-last') {
+    const previousMonth = monthUtils.prevMonth(month);
+    const amount = await getCompanyBudget(previousMonth);
+
+    await saveCompanyBudget(month, amount);
+    return null;
+  }
+
+  if (
+    action === 'set-single-3-avg' ||
+    action === 'set-single-6-avg' ||
+    action === 'set-single-12-avg'
+  ) {
+    const numberOfMonths =
+      action === 'set-single-3-avg'
+        ? 3
+        : action === 'set-single-6-avg'
+          ? 6
+          : 12;
+
+    const previousMonth = monthUtils.prevMonth(month);
+
+    const firstActivityRows = db.runQuery<{ month: number | null }>(
+      `
+        SELECT MIN(month) AS month
+        FROM (
+          SELECT CAST(REPLACE(month, '-', '') AS INTEGER) AS month
+          FROM company_budgets
+          WHERE account_id = ?
+            AND category_id = ?
+            AND month <= ?
+
+          UNION ALL
+
+          SELECT CAST(t.date / 100 AS INTEGER) AS month
+          FROM v_transactions_internal_alive t
+          LEFT JOIN accounts a ON a.id = t.account
+          WHERE t.category = ?
+            AND t.account = ?
+            AND CAST(t.date / 100 AS INTEGER) <= ?
+            AND a.offbudget = 0
+        )
+      `,
+      [
+        accountId,
+        categoryId,
+        previousMonth,
+        categoryId,
+        accountId,
+        Number(previousMonth.replace('-', '')),
+      ],
+      true,
+    );
+
+    const firstActivityMonth =
+      firstActivityRows[0]?.month != null
+        ? String(firstActivityRows[0].month)
+        : null;
+
+    const months: string[] = [];
+    let current = previousMonth;
+
+    for (let i = 0; i < numberOfMonths; i++) {
+      if (
+        firstActivityMonth &&
+        Number(current.replace('-', '')) < Number(firstActivityMonth)
+      ) {
+        break;
+      }
+
+      months.push(current);
+      current = monthUtils.prevMonth(current);
+    }
+
+    if (months.length === 0) {
+      await saveCompanyBudget(month, 0);
+      return null;
+    }
+
+    let total = 0;
+
+    for (const averageMonth of months) {
+      const { start, end } = monthUtils.bounds(averageMonth);
+
+      const rows = db.runQuery<{ amount: number | null }>(
+        `
+          SELECT SUM(t.amount) AS amount
+          FROM v_transactions_internal_alive t
+          LEFT JOIN accounts a ON a.id = t.account
+          WHERE t.date >= ?
+            AND t.date <= ?
+            AND t.category = ?
+            AND t.account = ?
+            AND a.offbudget = 0
+        `,
+        [start, end, categoryId, accountId],
+        true,
+      );
+
+      total += rows[0]?.amount ?? 0;
+    }
+
+    let average = Math.round(total / months.length);
+
+    const categoryRows = db.runQuery<{ is_income: number }>(
+      `
+        SELECT is_income
+        FROM v_categories
+        WHERE id = ?
+      `,
+      [categoryId],
+      true,
+    );
+
+    if (categoryRows[0]?.is_income === 0) {
+      average *= -1;
+    }
+
+    await saveCompanyBudget(month, average);
+
+    return null;
+  }
+
+  if (action === 'copy-until-year-end') {
+    const amount = await getCompanyBudget(month);
+
+    const year = Number(month.slice(0, 4));
+    const currentMonthNumber = Number(month.slice(5, 7));
+
+    for (
+      let monthNumber = currentMonthNumber + 1;
+      monthNumber <= 12;
+      monthNumber++
+    ) {
+      const targetMonth =
+        `${year}-${String(monthNumber).padStart(2, '0')}`;
+
+      await saveCompanyBudget(targetMonth, amount);
+    }
+
+    return null;
+  }
+
+  return null;
 }
 
 async function setCompanyBudget({
