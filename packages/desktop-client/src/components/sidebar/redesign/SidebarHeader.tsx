@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { SvgLogo } from '@actual-app/components/icons/logo';
+import wagnerTechLogo from '../../../assets/wagnertech/favicon.png';
 import { theme } from '@actual-app/components/theme';
 import { spacing } from '@actual-app/components/tokens';
 import { View } from '@actual-app/components/view';
@@ -32,10 +32,15 @@ export function SidebarHeader({ children }: SidebarHeaderProps) {
         flexShrink: 0,
       }}
     >
-      <SvgLogo
+      <img
+        src={wagnerTechLogo}
+        alt="WagnerTech"
         width={28}
         height={28}
-        style={{ flexShrink: 0, color: theme.sidebarBrand }}
+        style={{
+          flexShrink: 0,
+          objectFit: 'contain',
+        }}
       />
       <View style={{ minWidth: 0, flex: 1 }}>
         <SidebarBudgetName />
