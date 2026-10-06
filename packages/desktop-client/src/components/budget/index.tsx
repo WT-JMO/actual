@@ -176,6 +176,16 @@ export function Budget() {
         type: 'date',
       },
     ];
+
+    if (selectedAccountId) {
+      filterConditions.push({
+        field: 'account',
+        op: 'is',
+        value: selectedAccountId,
+        type: 'id',
+      });
+    }
+
     void navigate('/accounts', {
       state: {
         goBack: true,
