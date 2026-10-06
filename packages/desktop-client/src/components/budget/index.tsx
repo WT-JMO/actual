@@ -207,6 +207,28 @@ export function Budget() {
   const applyBudgetAction = useBudgetActions();
 
   const onBudgetAction = (month, type, args) => {
+    if (
+      budgetType === 'tracking' &&
+      selectedAccountId &&
+      type === 'budget-amount'
+    ) {
+      void send('budget/company-budget-amount', {
+        accountId: selectedAccountId,
+        categoryId: args.category,
+        month,
+        amount: args.amount,
+      }).then(() => {
+        void prewarmMonth(
+          budgetType,
+          spreadsheet,
+          month,
+          selectedAccountId,
+        );
+      });
+
+      return;
+    }
+
     applyBudgetAction.mutate({ month, type, args });
   };
 
@@ -221,6 +243,7 @@ export function Budget() {
         summaryCollapsed={summaryCollapsed}
         onBudgetAction={onBudgetAction}
         onToggleSummaryCollapse={onToggleCollapse}
+        canEditBudgeted={Boolean(selectedAccountId)}
       >
         <AutoSizingBudgetTable
           type={budgetType}

@@ -48,6 +48,7 @@ export type BudgetHandlers = {
   'get-categories': typeof getCategories;
   'get-budget-bounds': typeof getBudgetBounds;
   'envelope-budget-month': typeof envelopeBudgetMonth;
+  'budget/company-budget-amount': typeof setCompanyBudget;
   'tracking-budget-month': typeof trackingBudgetMonth;
   'category-create': typeof createCategory;
   'category-update': typeof updateCategory;
@@ -145,6 +146,7 @@ app.method(
 app.method('get-categories', getCategories);
 app.method('get-budget-bounds', getBudgetBounds);
 app.method('envelope-budget-month', envelopeBudgetMonth);
+app.method('budget/company-budget-amount', setCompanyBudget);
 app.method('tracking-budget-month', trackingBudgetMonth);
 app.method('category-create', mutator(undoable(createCategory)));
 app.method('category-update', mutator(undoable(updateCategory)));
@@ -260,6 +262,37 @@ async function envelopeBudgetMonth({ month }: { month: string }) {
   return values;
 }
 
+async function setCompanyBudget({
+  accountId,
+  categoryId,
+  month,
+  amount,
+}: {
+  accountId: string;
+  categoryId: string;
+  month: string;
+  amount: number;
+}) {
+  db.runQuery(
+    `
+      INSERT INTO company_budgets (
+        account_id,
+        category_id,
+        month,
+        amount
+      )
+      VALUES (?, ?, ?, ?)
+
+      ON CONFLICT(account_id, category_id, month)
+      DO UPDATE SET amount = excluded.amount
+    `,
+    [accountId, categoryId, month, amount],
+    true,
+  );
+
+  return null;
+}
+
 async function trackingBudgetMonth({
   month,
   accountId,
@@ -293,6 +326,11 @@ async function trackingBudgetMonth({
   }
 
   function filteredAmount(categoryId: string) {
+    /*
+     * All companies :
+     * on peut utiliser le calcul natif Actual puisque celui-ci
+     * contient déjà les transactions de tous les comptes on-budget.
+     */
     if (!accountId) {
       return rawValue(`sum-amount-${categoryId}`);
     }
@@ -315,125 +353,121 @@ async function trackingBudgetMonth({
     return rows[0]?.amount ?? 0;
   }
 
-  /*
-   * Sans filtre société, on conserve exactement
-   * le comportement natif d'Actual.
-   */
-  if (!accountId) {
-    let values = [
-      value('total-budgeted'),
-      value('total-budget-income'),
-      value('total-saved'),
-      value('total-income'),
-      value('total-spent'),
-      value('real-saved'),
-      value('total-leftover'),
-    ];
+  function companyBudget(categoryId: string) {
+    /*
+     * Company sélectionnée :
+     * budget de cette société uniquement.
+     */
+    if (accountId) {
+      const rows = db.runQuery<{ amount: number | null }>(
+        `
+          SELECT amount
+          FROM company_budgets
+          WHERE account_id = ?
+            AND category_id = ?
+            AND month = ?
+        `,
+        [accountId, categoryId, month],
+        true,
+      );
 
-    for (const group of groups) {
-      values = values.concat([
-        value(`group-budget-${group.id}`),
-        value(`group-sum-amount-${group.id}`),
-        value(`group-leftover-${group.id}`),
-      ]);
-
-      const categories = group.categories ?? [];
-
-      for (const cat of categories) {
-        values = values.concat([
-          value(`budget-${cat.id}`),
-          value(`sum-amount-${cat.id}`),
-          value(`leftover-${cat.id}`),
-          value(`goal-${cat.id}`),
-          value(`long-goal-${cat.id}`),
-        ]);
-
-        if (!group.is_income) {
-          values.push(value(`carryover-${cat.id}`));
-        }
-      }
+      return rows[0]?.amount ?? 0;
     }
 
-    return values;
+    /*
+     * All companies :
+     * somme des budgets de toutes les sociétés.
+     */
+    const rows = db.runQuery<{ amount: number | null }>(
+      `
+        SELECT SUM(amount) AS amount
+        FROM company_budgets
+        WHERE category_id = ?
+          AND month = ?
+      `,
+      [categoryId, month],
+      true,
+    );
+
+    return rows[0]?.amount ?? 0;
   }
 
-  /*
-   * Vue filtrée par société
-   */
+  let totalBudgeted = 0;
+  let totalBudgetIncome = 0;
 
   let totalSpent = 0;
   let totalLeftover = 0;
   let totalIncome = 0;
 
-  const filteredGroupValues = new Map<
+  const companyGroupValues = new Map<
     string,
     {
+      budgeted: number;
       spent: number;
       leftover: number;
     }
   >();
 
-  const filteredCategoryValues = new Map<
+  const companyCategoryValues = new Map<
     string,
     {
+      budgeted: number;
       spent: number;
       leftover: number;
     }
   >();
 
   for (const group of groups) {
+    let groupBudgeted = 0;
     let groupSpent = 0;
     let groupLeftover = 0;
 
     const categories = group.categories ?? [];
 
     for (const cat of categories) {
+      const budgeted = companyBudget(cat.id);
       const spent = filteredAmount(cat.id);
-      const budgeted = rawValue(`budget-${cat.id}`);
 
-      /*
-       * Tracking budget :
-       *
-       * dépense :
-       *   balance = budget + montant
-       *
-       * revenu :
-       *   balance = budget - montant
-       */
       const leftover = cat.is_income
         ? budgeted - spent
         : budgeted + spent;
 
-      filteredCategoryValues.set(cat.id, {
+      companyCategoryValues.set(cat.id, {
+        budgeted,
         spent,
         leftover,
       });
 
       if (!cat.hidden) {
+        groupBudgeted += budgeted;
         groupSpent += spent;
         groupLeftover += leftover;
       }
     }
 
-    filteredGroupValues.set(group.id, {
+    companyGroupValues.set(group.id, {
+      budgeted: groupBudgeted,
       spent: groupSpent,
       leftover: groupLeftover,
     });
 
     if (group.is_income) {
+      totalBudgetIncome += groupBudgeted;
       totalIncome += groupSpent;
     } else if (!group.hidden) {
+      totalBudgeted += groupBudgeted;
       totalSpent += groupSpent;
       totalLeftover += groupLeftover;
     }
   }
 
+  const totalSaved = totalBudgetIncome - totalBudgeted;
   const realSaved = totalIncome - -totalSpent;
 
   let values = [
-    value('total-budgeted'),
-    value('total-budget-income'),
-    value('total-saved'),
+    value('total-budgeted', totalBudgeted),
+    value('total-budget-income', totalBudgetIncome),
+    value('total-saved', totalSaved),
 
     value('total-income', totalIncome),
     value('total-spent', totalSpent),
@@ -442,36 +476,42 @@ async function trackingBudgetMonth({
   ];
 
   for (const group of groups) {
-    const filteredGroup = filteredGroupValues.get(group.id);
+    const companyGroup = companyGroupValues.get(group.id);
 
     values = values.concat([
-      value(`group-budget-${group.id}`),
+      value(
+        `group-budget-${group.id}`,
+        companyGroup?.budgeted ?? 0,
+      ),
       value(
         `group-sum-amount-${group.id}`,
-        filteredGroup?.spent ?? 0,
+        companyGroup?.spent ?? 0,
       ),
       value(
         `group-leftover-${group.id}`,
-        filteredGroup?.leftover ?? 0,
+        companyGroup?.leftover ?? 0,
       ),
     ]);
 
     const categories = group.categories ?? [];
 
     for (const cat of categories) {
-      const filteredCategory = filteredCategoryValues.get(cat.id);
+      const companyCategory = companyCategoryValues.get(cat.id);
 
       values = values.concat([
-        value(`budget-${cat.id}`),
+        value(
+          `budget-${cat.id}`,
+          companyCategory?.budgeted ?? 0,
+        ),
 
         value(
           `sum-amount-${cat.id}`,
-          filteredCategory?.spent ?? 0,
+          companyCategory?.spent ?? 0,
         ),
 
         value(
           `leftover-${cat.id}`,
-          filteredCategory?.leftover ?? 0,
+          companyCategory?.leftover ?? 0,
         ),
 
         value(`goal-${cat.id}`),

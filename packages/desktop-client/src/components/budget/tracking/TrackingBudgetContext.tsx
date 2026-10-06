@@ -8,6 +8,7 @@ type TrackingBudgetContextDefinition = {
   onBudgetAction: (month: string, action: string, arg?: unknown) => void;
   onToggleSummaryCollapse: () => void;
   currentMonth: string;
+  canEditBudgeted: boolean;
 };
 
 const TrackingBudgetContext = createContext<TrackingBudgetContextDefinition>({
@@ -21,6 +22,7 @@ const TrackingBudgetContext = createContext<TrackingBudgetContextDefinition>({
     );
   },
   currentMonth: 'unknown',
+  canEditBudgeted: true,
 });
 
 type TrackingBudgetProviderProps = Omit<
@@ -33,6 +35,7 @@ export function TrackingBudgetProvider({
   summaryCollapsed,
   onBudgetAction,
   onToggleSummaryCollapse,
+  canEditBudgeted,
   children,
 }: TrackingBudgetProviderProps) {
   const currentMonth = monthUtils.currentMonth();
@@ -44,6 +47,7 @@ export function TrackingBudgetProvider({
         summaryCollapsed,
         onBudgetAction,
         onToggleSummaryCollapse,
+        canEditBudgeted,
       }}
     >
       {children}

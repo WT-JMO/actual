@@ -2,7 +2,6 @@
 import React, { memo, useRef, useState } from 'react';
 import type { ComponentProps, CSSProperties } from 'react';
 import { Trans } from 'react-i18next';
-
 import { Button } from '@actual-app/components/button';
 import { SvgCheveronDown } from '@actual-app/components/icons/v1';
 import {
@@ -35,6 +34,7 @@ import type { CategoryGroupMonthProps, CategoryMonthProps } from '..';
 
 import { BalanceMenu } from './BalanceMenu';
 import { BudgetMenu } from './BudgetMenu';
+import { useTrackingBudget } from './TrackingBudgetContext';
 
 export const useTrackingSheetValue = <
   FieldName extends SheetFields<'tracking-budget'>,
@@ -202,7 +202,7 @@ export const CategoryMonth = memo(function CategoryMonth({
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef(null);
   const format = useFormat();
-
+  const { canEditBudgeted } = useTrackingBudget();
   const [balanceMenuOpen, setBalanceMenuOpen] = useState(false);
   const triggerBalanceMenuRef = useRef(null);
 
@@ -359,21 +359,30 @@ export const CategoryMonth = memo(function CategoryMonth({
         )}
         <TrackingSheetCell
           name="budget"
-          exposed={editing}
-          focused={editing}
+          exposed={editing && canEditBudgeted}
+          focused={editing && canEditBudgeted}
           width="flex"
-          onExpose={() => onEdit(category.id, month)}
-          style={{ ...(editing && { zIndex: 100 }), ...styles.tnum }}
+          onExpose={() => {
+            if (canEditBudgeted) {
+              onEdit(category.id, month);
+            }
+          }}
+          style={{
+            ...(editing && canEditBudgeted && { zIndex: 100 }),
+            ...styles.tnum,
+          }}
           textAlign="right"
           valueStyle={{
-            cursor: 'default',
+            cursor: canEditBudgeted ? 'default' : 'not-allowed',
             margin: 1,
             padding: '0 4px',
             borderRadius: 4,
-            ':hover': {
-              boxShadow: 'inset 0 0 0 1px ' + theme.pageTextSubdued,
-              backgroundColor: theme.budgetCurrentMonth,
-            },
+            ':hover': canEditBudgeted
+              ? {
+                  boxShadow: 'inset 0 0 0 1px ' + theme.pageTextSubdued,
+                  backgroundColor: theme.budgetCurrentMonth,
+                }
+              : {},
           }}
           valueProps={{
             binding: trackingBudget.catBudgeted(category.id),
