@@ -81,6 +81,7 @@ export function Budget() {
         { start, end },
         startMonth,
         selectedAccountId || undefined,
+        maxMonths,
       );
       setInitialized(true);
     }
@@ -100,6 +101,7 @@ export function Budget() {
       bounds,
       startMonth,
       selectedAccountId || undefined,
+      maxMonths,
     );
   }, [
     selectedAccountId,
@@ -108,6 +110,7 @@ export function Budget() {
     spreadsheet,
     bounds,
     startMonth,
+    maxMonths,
   ]);
 
   const loadBoundBudgets = useEffectEvent(() => {
@@ -136,6 +139,7 @@ export function Budget() {
         budgetType,
         spreadsheet,
         monthUtils.subMonths(month, 1),
+        selectedAccountId || undefined,
       );
     } else if (month > startMonth) {
       // pre-warm next month
@@ -143,6 +147,7 @@ export function Budget() {
         budgetType,
         spreadsheet,
         monthUtils.addMonths(month, numDisplayed),
+        selectedAccountId || undefined,
       );
     }
 
@@ -264,6 +269,7 @@ export function Budget() {
           bounds,
           startMonth,
           selectedAccountId,
+          maxMonths,
         );
       });
 

@@ -205,8 +205,8 @@ export async function prewarmAllMonths(
   bounds: { start: string; end: string },
   startMonth: string,
   accountId?: string,
+  numMonths = 3,
 ) {
-  const numMonths = 3;
 
   bounds = getValidMonthBounds(
     bounds,
