@@ -2,6 +2,8 @@
 import React, { Fragment, useEffect, useEffectEvent } from 'react';
 import { useLocation } from 'react-router';
 
+import { AnnualBudgetModal } from './modals/AnnualBudgetModal';
+
 import { send } from '@actual-app/core/platform/client/connection';
 import * as monthUtils from '@actual-app/core/shared/months';
 
@@ -301,7 +303,8 @@ export function Modals() {
               <EnvelopeBudgetMenuModal {...modal.options} />
             </SheetNameProvider>
           );
-
+        case 'annual-budget':
+          return <AnnualBudgetModal key={key} {...modal.options} />;
         case 'tracking-budget-menu':
           return (
             <SheetNameProvider

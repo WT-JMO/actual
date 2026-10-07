@@ -412,6 +412,15 @@ export type Modal =
       };
     }
   | {
+      name: 'annual-budget';
+      options: {
+        accountId?: string;
+        companyName: string;
+        year: number;
+        onUpdated: () => void;
+      };
+    }
+  | {
       name: 'category-group-menu';
       options: {
         groupId: CategoryGroupEntity['id'];

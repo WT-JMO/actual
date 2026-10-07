@@ -71,6 +71,8 @@ export type BudgetHandlers = {
   'budget/company-budget-action': typeof applyCompanyBudgetAction;
   'budget/company-budget-month-action':
     typeof applyCompanyBudgetMonthAction;
+  'budget/company-annual-budget': typeof getCompanyAnnualBudget;
+  'budget/company-annual-budget-amount': typeof setCompanyAnnualBudget;
 };
 
 export const app = createApp<BudgetHandlers>();
@@ -192,6 +194,16 @@ app.method(
 app.method(
   'budget/company-budget-action',
   applyCompanyBudgetAction,
+);
+
+app.method(
+  'budget/company-annual-budget',
+  getCompanyAnnualBudget,
+);
+
+app.method(
+  'budget/company-annual-budget-amount',
+  setCompanyAnnualBudget,
 );
 
 // Server must return AQL entities not the raw DB data
@@ -552,6 +564,88 @@ async function setCompanyBudget({
     [accountId, categoryId, month, amount],
     true,
   );
+
+  return null;
+}
+
+async function getCompanyAnnualBudget({
+  accountId,
+  year,
+}: {
+  accountId?: string;
+  year: number;
+}) {
+  const startMonth = `${year}-01`;
+  const endMonth = `${year}-12`;
+
+  const rows = accountId
+    ? db.runQuery<{
+        categoryId: string;
+        amount: number | null;
+      }>(
+        `
+          SELECT
+            category_id AS categoryId,
+            SUM(amount) AS amount
+          FROM company_budgets
+          WHERE account_id = ?
+            AND month >= ?
+            AND month <= ?
+          GROUP BY category_id
+        `,
+        [accountId, startMonth, endMonth],
+        true,
+      )
+    : db.runQuery<{
+        categoryId: string;
+        amount: number | null;
+      }>(
+        `
+          SELECT
+            category_id AS categoryId,
+            SUM(amount) AS amount
+          FROM company_budgets
+          WHERE month >= ?
+            AND month <= ?
+          GROUP BY category_id
+        `,
+        [startMonth, endMonth],
+        true,
+      );
+
+  return rows.map(row => ({
+    categoryId: row.categoryId,
+    amount: row.amount ?? 0,
+  }));
+}
+
+async function setCompanyAnnualBudget({
+  accountId,
+  categoryId,
+  year,
+  amount,
+}: {
+  accountId: string;
+  categoryId: string;
+  year: number;
+  amount: number;
+}) {
+  const monthlyAmount = Math.trunc(amount / 12);
+  const remainder = amount - monthlyAmount * 12;
+
+  for (let monthNumber = 1; monthNumber <= 12; monthNumber++) {
+    const month = `${year}-${String(monthNumber).padStart(2, '0')}`;
+
+    const amountForMonth =
+      monthlyAmount + (monthNumber === 12 ? remainder : 0);
+
+    await setCompanyBudget({
+      accountId,
+      categoryId,
+      month,
+      amount: amountForMonth,
+    });
+  }
 
   return null;
 }

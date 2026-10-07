@@ -3,7 +3,7 @@ import { Select } from '@actual-app/components/select';
 import { Text } from '@actual-app/components/text';
 import React, { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
-
+import { Button } from '@actual-app/components/button';
 import { styles } from '@actual-app/components/styles';
 import { View } from '@actual-app/components/view';
 import { send } from '@actual-app/core/platform/client/connection';
@@ -38,11 +38,14 @@ import { EnvelopeBudgetProvider } from './envelope/EnvelopeBudgetContext';
 import * as trackingBudget from './tracking/TrackingBudgetComponents';
 import { TrackingBudgetProvider } from './tracking/TrackingBudgetContext';
 import { prewarmAllMonths, prewarmMonth } from './util';
+import { pushModal } from '#modals/modalsSlice';
+import { useDispatch } from '#redux';
 
 export function Budget() {
   const currentMonth = monthUtils.currentMonth();
   const spreadsheet = useSpreadsheet();
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const { data: accounts = [] } = useAccounts();
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [summaryCollapsed, setSummaryCollapsedPref] = useLocalPref(
@@ -57,8 +60,16 @@ export function Budget() {
     ],
     [accounts],
   );
+
   const [startMonthPref, setStartMonthPref] = useLocalPref('budget.startMonth');
   const startMonth = startMonthPref || currentMonth;
+
+  const selectedCompanyName =
+    accounts.find(account => account.id === selectedAccountId)?.name ??
+    'All companies';
+
+  const annualBudgetYear = Number(startMonth.slice(0, 4));
+
   const [bounds, setBounds] = useState({
     start: startMonth,
     end: startMonth,
@@ -413,6 +424,36 @@ export function Budget() {
               defaultLabel="All companies"
               onChange={value => setSelectedAccountId(value)}
             />
+
+            <Button
+              onPress={() => {
+                dispatch(
+                  pushModal({
+                    modal: {
+                      name: 'annual-budget',
+                      options: {
+                        accountId: selectedAccountId || undefined,
+                        companyName: selectedCompanyName,
+                        year: annualBudgetYear,
+                        onUpdated: () => {
+                          void prewarmAllMonths(
+                            budgetType,
+                            spreadsheet,
+                            bounds,
+                            startMonth,
+                            selectedAccountId || undefined,
+                            maxMonths,
+                          );
+                        },
+                      },
+                    },
+                  }),
+                );
+              }}
+            >
+              Annual Budget
+            </Button>
+
           </View>
         )}
 
