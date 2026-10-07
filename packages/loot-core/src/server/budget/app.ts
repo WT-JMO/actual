@@ -69,6 +69,8 @@ export type BudgetHandlers = {
   'budget/render-note-templates': typeof goalNoteActions.unparse;
   'budget/create-cleanup-group': typeof cleanupGroupActions.createCleanupGroup;
   'budget/company-budget-action': typeof applyCompanyBudgetAction;
+  'budget/company-budget-month-action':
+    typeof applyCompanyBudgetMonthAction;
 };
 
 export const app = createApp<BudgetHandlers>();
@@ -77,6 +79,10 @@ app.method('budget/budget-amount', mutator(undoable(actions.setBudget)));
 app.method(
   'budget/copy-previous-month',
   mutator(undoable(actions.copyPreviousMonth)),
+);
+app.method(
+  'budget/company-budget-month-action',
+  applyCompanyBudgetMonthAction,
 );
 app.method(
   'budget/copy-single-month',
@@ -278,6 +284,7 @@ async function applyCompanyBudgetAction({
   month: string;
   action:
     | 'copy-single-last'
+    | 'set-single-zero'
     | 'set-single-3-avg'
     | 'set-single-6-avg'
     | 'set-single-12-avg'
@@ -323,6 +330,11 @@ async function applyCompanyBudgetAction({
     const amount = await getCompanyBudget(previousMonth);
 
     await saveCompanyBudget(month, amount);
+    return null;
+  }
+
+  if (action === 'set-single-zero') {
+    await saveCompanyBudget(month, 0);
     return null;
   }
 
@@ -459,6 +471,55 @@ async function applyCompanyBudgetAction({
     }
 
     return null;
+  }
+
+  return null;
+}
+
+async function applyCompanyBudgetMonthAction({
+  accountId,
+  month,
+  action,
+}: {
+  accountId: string;
+  month: string;
+  action:
+    | 'copy-last'
+    | 'set-zero'
+    | 'set-3-avg'
+    | 'set-6-avg'
+    | 'set-12-avg';
+}) {
+  const categories = db.runQuery<{ id: string }>(
+    `
+      SELECT c.id
+      FROM categories c
+      LEFT JOIN category_groups g ON c.cat_group = g.id
+      WHERE c.tombstone = 0
+        AND c.hidden = 0
+        AND g.hidden = 0
+    `,
+    [],
+    true,
+  );
+
+  const actionMap = {
+    'copy-last': 'copy-single-last',
+    'set-zero': 'set-single-zero',
+    'set-3-avg': 'set-single-3-avg',
+    'set-6-avg': 'set-single-6-avg',
+    'set-12-avg': 'set-single-12-avg',
+  } as const;
+
+  const companyAction = actionMap[action];
+
+  for (const category of categories) {
+    await applyCompanyBudgetAction({
+      accountId,
+      categoryId: category.id,
+      month,
+      action: companyAction,
+    });
   }
 
   return null;

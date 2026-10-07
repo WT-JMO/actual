@@ -276,6 +276,37 @@ export function Budget() {
       return;
     }
 
+  const companyMonthActions = [
+    'copy-last',
+    'set-zero',
+    'set-3-avg',
+    'set-6-avg',
+    'set-12-avg',
+  ];
+
+  if (
+    budgetType === 'tracking' &&
+    selectedAccountId &&
+    companyMonthActions.includes(type)
+  ) {
+    void send('budget/company-budget-month-action', {
+      accountId: selectedAccountId,
+      month,
+      action: type,
+    }).then(() => {
+      void prewarmAllMonths(
+        budgetType,
+        spreadsheet,
+        bounds,
+        startMonth,
+        selectedAccountId,
+        maxMonths,
+      );
+    });
+
+    return;
+  }
+
     applyBudgetAction.mutate({ month, type, args });
   };
 
