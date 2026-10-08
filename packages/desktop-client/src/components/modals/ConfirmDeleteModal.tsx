@@ -19,6 +19,8 @@ type ConfirmDeleteModalProps = Extract<
 export function ConfirmDeleteModal({
   message,
   onConfirm,
+  title,
+  confirmLabel,
 }: ConfirmDeleteModalProps) {
   const { t } = useTranslation();
   const { isNarrowWidth } = useResponsive();
@@ -33,7 +35,7 @@ export function ConfirmDeleteModal({
       {({ state }) => (
         <>
           <ModalHeader
-            title={t('Confirm Delete')}
+            title={title ?? t('Confirm Delete')}
             rightContent={<ModalCloseButton onPress={() => state.close()} />}
           />
           <View style={{ lineHeight: 1.5 }}>
@@ -62,7 +64,7 @@ export function ConfirmDeleteModal({
                     state.close();
                   }}
                 >
-                  <Trans>Delete</Trans>
+                  <Trans>{confirmLabel ?? t('Delete')}</Trans>
                 </Button>
               </InitialFocus>
             </View>

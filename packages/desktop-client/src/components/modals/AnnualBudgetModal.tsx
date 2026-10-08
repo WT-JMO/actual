@@ -20,6 +20,8 @@ import {
 import { AmountInput } from '#components/mobile/transactions/AmountInput';
 import { useCategories } from '#hooks/useCategories';
 import type { Modal as ModalType } from '#modals/modalsSlice';
+import { pushModal } from '#modals/modalsSlice';
+import { useDispatch } from '#redux';
 
 type AnnualBudgetModalProps = Extract<
   ModalType,
@@ -32,7 +34,7 @@ export function AnnualBudgetModal({
   year,
   onUpdated,
 }: AnnualBudgetModalProps) {
-
+  const dispatch = useDispatch();
   const [selectedYear, setSelectedYear] = useState(year);
 
   const { data: { grouped: categoryGroups } = { grouped: [] } } =
@@ -135,6 +137,39 @@ export function AnnualBudgetModal({
     });
     onUpdated();
   };
+
+  const usePreviousYear = (
+    categoryId: string,
+    categoryName: string,
+  ) => {
+    if (!accountId) {
+      return;
+    }
+
+    const spent = previousYearSpent[categoryId] ?? 0;
+    const currentBudget = amounts[categoryId] ?? 0;
+
+    dispatch(
+      pushModal({
+        modal: {
+          name: 'confirm-delete',
+          options: {
+            title: 'Confirm Budget Update',
+            confirmLabel: 'Confirm',
+            message:
+              `Use ${selectedYear - 1} spending for "${categoryName}"?\n\n` +
+              `Current annual budget: ${formatAmount(currentBudget)}\n` +
+              `New annual budget: ${formatAmount(spent)}\n\n` +
+              `This will replace the budget for all 12 months of ${selectedYear}.`,
+            onConfirm: () => {
+              void saveAmount(categoryId, spent / 100);
+            },
+          },
+        },
+      }),
+    );
+  };
+
   const yearOptions = [
     [String(selectedYear - 2), String(selectedYear - 2)],
     [String(selectedYear - 1), String(selectedYear - 1)],
@@ -236,6 +271,15 @@ export function AnnualBudgetModal({
               >
                 Monthly
               </Text>
+              <Text
+                style={{
+                  width: 130,
+                  textAlign: 'right',
+                  fontWeight: 600,
+                }}
+              >
+                Action
+              </Text>
             </View>
 
             {loading ? (
@@ -271,8 +315,8 @@ export function AnnualBudgetModal({
                         alignItems: 'center',
                         minHeight: 42,
                         borderBottom: `1px solid ${theme.tableBorder}`,
-                     }}
-                   >
+                      }}
+                    >
                       <Text
                         style={{
                           flex: 1,
@@ -287,41 +331,58 @@ export function AnnualBudgetModal({
                         style={{
                           width: 150,
                           textAlign: 'right',
-                        }}
+                       }}
                       >
-                        {formatAmount(previousYearSpent[category.id] ?? 0)}
-                      </Text>
+                       {formatAmount(previousYearSpent[category.id] ?? 0)}
+                     </Text>
 
-                      <View
-                        style={{
-                          width: 160,
-                          alignItems: 'flex-end',
-                        }}
-                      >
-                        {editable ? (
-                          <AmountInput
-                            value={integerToAmount(annualAmount)}
-                            onChange={value => {
-                              void saveAmount(category.id, value);
-                            }}
-                            data-testid={`annual-budget-${category.id}`}
-                          />
-                        ) : (
-                          <Text>{formatAmount(annualAmount)}</Text>
-                        )}
-                      </View>
+                     <View
+                       style={{
+                         width: 160,
+                         alignItems: 'flex-end',
+                       }}
+                     >
+                       {editable ? (
+                         <AmountInput
+                           value={integerToAmount(annualAmount)}
+                           onChange={value => {
+                             void saveAmount(category.id, value);
+                           }}
+                           data-testid={`annual-budget-${category.id}`}
+                         />
+                       ) : (
+                         <Text>{formatAmount(annualAmount)}</Text>
+                       )}
+                     </View>
 
-                     <Text
-                        style={{
-                          width: 130,
-                          textAlign: 'right',
-                        }}
-                      >
-                        {formatAmount(Math.round(annualAmount / 12))}
-                      </Text>
-                   </View>
-                  );
-                })}
+                    <Text
+                      style={{
+                        width: 130,
+                        textAlign: 'right',
+                     }}
+                   >
+                     {formatAmount(Math.round(annualAmount / 12))}
+                  </Text>
+                  <View
+                    style={{
+                      width: 145,
+                      alignItems: 'flex-end',
+                      paddingLeft: 15,
+                    }}
+                  >
+                    {editable && (
+                      <Button
+                        onPress={() =>
+                          usePreviousYear(category.id, category.name)
+                       }
+                     >
+                       Use previous year
+                    </Button>
+                   )}
+                </View>
+             </View>
+            );
+         })}
               </React.Fragment>
             ))
             )}
@@ -368,6 +429,7 @@ export function AnnualBudgetModal({
               >
                 {formatAmount(Math.round(total / 12))}
               </Text>
+              <View style={{ width: 145 }} />
             </View>
             {!editable && (
               <Text

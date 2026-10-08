@@ -620,6 +620,8 @@ export type Modal =
       options: {
         message: string;
         onConfirm: () => void;
+        title?: string;
+        confirmLabel?: string;
       };
     }
   | {
