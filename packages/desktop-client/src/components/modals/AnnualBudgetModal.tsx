@@ -41,6 +41,8 @@ export function AnnualBudgetModal({
   const formatAmount = (amount: number) =>
     format(amount, 'financial');
   const [amounts, setAmounts] = useState<Record<string, number>>({});
+  const [previousYearSpent, setPreviousYearSpent] =
+    useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   const editable = Boolean(accountId);
@@ -51,6 +53,19 @@ export function AnnualBudgetModal({
         accountId,
         year: selectedYear,
       });
+
+      const spentRows = await send('budget/company-annual-spent', {
+        accountId,
+        year: selectedYear - 1,
+      });
+
+      const nextSpent: Record<string, number> = {};
+
+      for (const row of spentRows) {
+        nextSpent[row.categoryId] = row.amount;
+      }
+
+      setPreviousYearSpent(nextSpent);
 
       const nextAmounts: Record<string, number> = {};
 
@@ -89,6 +104,17 @@ export function AnnualBudgetModal({
     0,
   );
 
+  const totalPreviousYearSpent = expenseGroups.reduce(
+    (groupTotal, group) =>
+      groupTotal +
+      group.categories.reduce(
+        (categoryTotal, category) =>
+          categoryTotal + (previousYearSpent[category.id] ?? 0),
+        0,
+      ),
+    0,
+  );
+
   const saveAmount = async (categoryId: string, amount: number) => {
     if (!accountId) {
       return;
@@ -121,7 +147,7 @@ export function AnnualBudgetModal({
       name="annual-budget"
       wrapperProps={{
         style: {
-          width: 760,
+          width: 950,
           maxWidth: '95vw',
           maxHeight: '90vh',
         },
@@ -129,31 +155,39 @@ export function AnnualBudgetModal({
     >
       {({ state }) => (
         <>
-          <ModalHeader
-            title={
-              <ModalTitle
-                title={`Annual Budget — ${companyName}`}
-                shrinkOnOverflow
-              />
-            }
-            rightContent={
-              <View
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <Select
-                   aria-label="Select year"
-                   options={yearOptions}
-                   value={String(selectedYear)}
-                   onChange={value => setSelectedYear(Number(value))}
-                />
-                <ModalCloseButton onPress={() => state.close()} />
-              </View>
-            }
-          />
+           <ModalHeader
+             title={
+               <ModalTitle
+                 title={`Annual Budget — ${companyName}`}
+                 shrinkOnOverflow
+               />
+             }
+             rightContent={
+               <ModalCloseButton onPress={() => state.close()} />
+             }
+           />
+
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              paddingLeft: 20,
+              paddingRight: 20,
+              paddingTop: 8,
+              paddingBottom: 8,
+              gap: 10,
+            }}
+          >
+            <Text style={{ fontWeight: 600 }}>Budget year</Text>
+
+            <Select
+              aria-label="Select year"
+              options={yearOptions}
+              value={String(selectedYear)}
+              onChange={value => setSelectedYear(Number(value))}
+            />
+          </View>
 
           <View
             style={{
@@ -171,6 +205,16 @@ export function AnnualBudgetModal({
             >
               <Text style={{ flex: 1, fontWeight: 600 }}>
                 Category
+              </Text>
+
+              <Text
+                style={{
+                  width: 150,
+                  textAlign: 'right',
+                  fontWeight: 600,
+                }}
+              >
+                {selectedYear - 1} Spent
               </Text>
 
               <Text
@@ -239,6 +283,15 @@ export function AnnualBudgetModal({
                         {category.name}
                       </Text>
 
+                      <Text
+                        style={{
+                          width: 150,
+                          textAlign: 'right',
+                        }}
+                      >
+                        {formatAmount(previousYearSpent[category.id] ?? 0)}
+                      </Text>
+
                       <View
                         style={{
                           width: 160,
@@ -284,6 +337,16 @@ export function AnnualBudgetModal({
             >
               <Text style={{ flex: 1, fontWeight: 700 }}>
                 TOTAL
+              </Text>
+
+              <Text
+                style={{
+                  width: 150,
+                  textAlign: 'right',
+                  fontWeight: 700,
+                }}
+              >
+                {formatAmount(totalPreviousYearSpent)}
               </Text>
 
               <Text

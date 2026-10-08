@@ -72,6 +72,7 @@ export type BudgetHandlers = {
   'budget/company-budget-month-action':
     typeof applyCompanyBudgetMonthAction;
   'budget/company-annual-budget': typeof getCompanyAnnualBudget;
+  'budget/company-annual-spent': typeof getCompanyAnnualSpent;
   'budget/company-annual-budget-amount': typeof setCompanyAnnualBudget;
 };
 
@@ -204,6 +205,11 @@ app.method(
 app.method(
   'budget/company-annual-budget-amount',
   setCompanyAnnualBudget,
+);
+
+app.method(
+  'budget/company-annual-spent',
+  getCompanyAnnualSpent,
 );
 
 // Server must return AQL entities not the raw DB data
@@ -566,6 +572,44 @@ async function setCompanyBudget({
   );
 
   return null;
+}
+
+async function getCompanyAnnualSpent({
+  accountId,
+  year,
+}: {
+  accountId?: string;
+  year: number;
+}) {
+  const { start: startDate } = monthUtils.bounds(`${year}-01`);
+  const { end: endDate } = monthUtils.bounds(`${year}-12`);
+  const rows = db.runQuery<{
+    categoryId: string;
+    amount: number | null;
+  }>(
+    `
+      SELECT
+        t.category AS categoryId,
+        -SUM(t.amount) AS amount
+      FROM v_transactions_internal_alive t
+      LEFT JOIN accounts a ON a.id = t.account
+      WHERE t.date >= ?
+        AND t.date <= ?
+        AND a.offbudget = 0
+        AND t.category IS NOT NULL
+        ${accountId ? 'AND t.account = ?' : ''}
+      GROUP BY t.category
+    `,
+    accountId
+      ? [startDate, endDate, accountId]
+      : [startDate, endDate],
+    true,
+  );
+
+  return rows.map(row => ({
+    categoryId: row.categoryId,
+    amount: row.amount ?? 0,
+  }));
 }
 
 async function getCompanyAnnualBudget({
