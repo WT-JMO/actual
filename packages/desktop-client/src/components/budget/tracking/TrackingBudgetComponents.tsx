@@ -1,7 +1,8 @@
 // @ts-strict-ignore
-import React, { memo, useRef, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import type { ComponentProps, CSSProperties } from 'react';
 import { Trans } from 'react-i18next';
+
 import { Button } from '@actual-app/components/button';
 import { SvgCheveronDown } from '@actual-app/components/icons/v1';
 import {
@@ -13,6 +14,7 @@ import { styles } from '@actual-app/components/styles';
 import { Text } from '@actual-app/components/text';
 import { theme } from '@actual-app/components/theme';
 import { View } from '@actual-app/components/view';
+import { send } from '@actual-app/core/platform/client/connection';
 import * as monthUtils from '@actual-app/core/shared/months';
 import { css } from '@emotion/css';
 import { t } from 'i18next';
@@ -25,6 +27,7 @@ import { Field, SheetCell } from '#components/table';
 import type { SheetCellProps } from '#components/table';
 import { useCategoryScheduleGoalTemplateIndicator } from '#hooks/useCategoryScheduleGoalTemplateIndicator';
 import { useFormat } from '#hooks/useFormat';
+import { useLocale } from '#hooks/useLocale';
 import { useNavigate } from '#hooks/useNavigate';
 import { useSheetValue } from '#hooks/useSheetValue';
 import { useUndo } from '#hooks/useUndo';
@@ -202,9 +205,60 @@ export const CategoryMonth = memo(function CategoryMonth({
   const [menuOpen, setMenuOpen] = useState(false);
   const triggerRef = useRef(null);
   const format = useFormat();
-  const { canEditBudgeted } = useTrackingBudget();
+  const locale = useLocale();
+  const { canEditBudgeted, selectedAccountId } = useTrackingBudget();
+  const [lastYearSpendingPreview, setLastYearSpendingPreview] = useState<{
+    key: string;
+    amount: number;
+  } | null>(null);
   const [balanceMenuOpen, setBalanceMenuOpen] = useState(false);
   const triggerBalanceMenuRef = useRef(null);
+
+  const lastYearSpendingKey = JSON.stringify([
+    selectedAccountId,
+    category.id,
+    month,
+  ]);
+
+  useEffect(() => {
+    if (!menuOpen || !canEditBudgeted || !selectedAccountId) {
+      return;
+    }
+
+    let cancelled = false;
+    setLastYearSpendingPreview(null);
+
+    void send('budget/company-last-year-spending', {
+      accountId: selectedAccountId,
+      categoryId: category.id,
+      month,
+    })
+      .then(amount => {
+        if (!cancelled && Number.isSafeInteger(amount)) {
+          setLastYearSpendingPreview({
+            key: lastYearSpendingKey,
+            amount,
+          });
+        }
+      })
+      .catch(error => {
+        if (!cancelled) {
+          console.error('Unable to load last year spending:', error);
+          setLastYearSpendingPreview(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    menuOpen,
+    canEditBudgeted,
+    selectedAccountId,
+    category.id,
+    month,
+    lastYearSpendingKey,
+  ]);
 
   const onMenuAction = (...args: Parameters<typeof onBudgetAction>) => {
     onBudgetAction(...args);
@@ -290,7 +344,10 @@ export const CategoryMonth = memo(function CategoryMonth({
               <Button
                 ref={triggerRef}
                 variant="bare"
-                onPress={() => setMenuOpen(true)}
+                onPress={() => {
+                  setLastYearSpendingPreview(null);
+                  setMenuOpen(true);
+                }}
                 style={{
                   padding: 3,
                 }}
@@ -309,6 +366,39 @@ export const CategoryMonth = memo(function CategoryMonth({
                 placement="bottom start"
               >
                 <BudgetMenu
+                  lastYearSpendingLabel={
+                    menuOpen &&
+                    canEditBudgeted &&
+                    selectedAccountId &&
+                    lastYearSpendingPreview?.key === lastYearSpendingKey
+                      ? t('Set to {{referenceMonth}} spending — {{amount}}', {
+                          referenceMonth: monthUtils.format(
+                            monthUtils.prevYear(month),
+                            'MMM yyyy',
+                            locale,
+                          ),
+                          amount: format(
+                            lastYearSpendingPreview.amount,
+                            'financial',
+                          ),
+                        })
+                      : undefined
+                  }
+                  onSetLastYearSpending={() => {
+                    if (
+                      !menuOpen ||
+                      !canEditBudgeted ||
+                      !selectedAccountId ||
+                      lastYearSpendingPreview?.key !== lastYearSpendingKey
+                    ) {
+                      return;
+                    }
+
+                    onMenuAction(month, 'set-single-last-year-spent', {
+                      category: category.id,
+                      amount: lastYearSpendingPreview.amount,
+                    });
+                  }}
                   onCopyLastMonthAverage={() => {
                     onMenuAction(month, 'copy-single-last', {
                       category: category.id,

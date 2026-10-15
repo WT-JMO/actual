@@ -11,12 +11,16 @@ type BudgetMenuProps = Omit<
   'onMenuSelect' | 'items'
 > & {
   onCopyLastMonthAverage: () => void;
+  lastYearSpendingLabel?: string;
+  onSetLastYearSpending: () => void;
   onSetMonthsAverage: (numberOfMonths: number) => void;
   onApplyBudgetTemplate: () => void;
   onCopyUntilYearEnd: () => void;
 };
 export function BudgetMenu({
   onCopyLastMonthAverage,
+  lastYearSpendingLabel,
+  onSetLastYearSpending,
   onSetMonthsAverage,
   onApplyBudgetTemplate,
   onCopyUntilYearEnd,
@@ -28,6 +32,11 @@ export function BudgetMenu({
     switch (name) {
       case 'copy-single-last':
         onCopyLastMonthAverage?.();
+        break;
+      case 'set-single-last-year-spent':
+        if (lastYearSpendingLabel !== undefined) {
+          onSetLastYearSpending();
+        }
         break;
       case 'set-single-3-avg':
         onSetMonthsAverage?.(3);
@@ -57,6 +66,11 @@ export function BudgetMenu({
         {
           name: 'copy-single-last',
           text: t("Copy last month's budget"),
+        },
+        {
+          name: 'set-single-last-year-spent',
+          text: lastYearSpendingLabel ?? t("Loading last year's spending…"),
+          disabled: lastYearSpendingLabel === undefined,
         },
         {
           name: 'set-single-3-avg',

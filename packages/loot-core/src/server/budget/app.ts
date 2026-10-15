@@ -68,9 +68,9 @@ export type BudgetHandlers = {
   'budget/store-note-cleanups': typeof storeNoteCleanups;
   'budget/render-note-templates': typeof goalNoteActions.unparse;
   'budget/create-cleanup-group': typeof cleanupGroupActions.createCleanupGroup;
+  'budget/company-last-year-spending': typeof getCompanyLastYearSpending;
   'budget/company-budget-action': typeof applyCompanyBudgetAction;
-  'budget/company-budget-month-action':
-    typeof applyCompanyBudgetMonthAction;
+  'budget/company-budget-month-action': typeof applyCompanyBudgetMonthAction;
   'budget/company-annual-budget': typeof getCompanyAnnualBudget;
   'budget/company-annual-spent': typeof getCompanyAnnualSpent;
   'budget/company-annual-budget-amount': typeof setCompanyAnnualBudget;
@@ -83,10 +83,7 @@ app.method(
   'budget/copy-previous-month',
   mutator(undoable(actions.copyPreviousMonth)),
 );
-app.method(
-  'budget/company-budget-month-action',
-  applyCompanyBudgetMonthAction,
-);
+app.method('budget/company-budget-month-action', applyCompanyBudgetMonthAction);
 app.method(
   'budget/copy-single-month',
   mutator(undoable(actions.copySinglePreviousMonth)),
@@ -192,25 +189,14 @@ app.method(
   'budget/create-cleanup-group',
   mutator(undoable(cleanupGroupActions.createCleanupGroup)),
 );
-app.method(
-  'budget/company-budget-action',
-  applyCompanyBudgetAction,
-);
+app.method('budget/company-last-year-spending', getCompanyLastYearSpending);
+app.method('budget/company-budget-action', applyCompanyBudgetAction);
 
-app.method(
-  'budget/company-annual-budget',
-  getCompanyAnnualBudget,
-);
+app.method('budget/company-annual-budget', getCompanyAnnualBudget);
 
-app.method(
-  'budget/company-annual-budget-amount',
-  setCompanyAnnualBudget,
-);
+app.method('budget/company-annual-budget-amount', setCompanyAnnualBudget);
 
-app.method(
-  'budget/company-annual-spent',
-  getCompanyAnnualSpent,
-);
+app.method('budget/company-annual-spent', getCompanyAnnualSpent);
 
 // Server must return AQL entities not the raw DB data
 async function getCategories({ hidden }: { hidden?: boolean } = {}) {
@@ -291,17 +277,61 @@ async function envelopeBudgetMonth({ month }: { month: string }) {
   return values;
 }
 
+async function getCompanyLastYearSpending({
+  accountId,
+  categoryId,
+  month,
+}: {
+  accountId: string;
+  categoryId: string;
+  month: string;
+}): Promise<number> {
+  const referenceMonth = monthUtils.prevYear(month);
+  const { start, end } = monthUtils.bounds(referenceMonth);
+
+  const rows = db.runQuery<{ amount: number | null }>(
+    `
+      SELECT SUM(t.amount) AS amount
+      FROM v_transactions_internal_alive t
+      LEFT JOIN accounts a ON a.id = t.account
+      WHERE t.date >= ?
+        AND t.date <= ?
+        AND t.category = ?
+        AND t.account = ?
+        AND a.offbudget = 0
+    `,
+    [start, end, categoryId, accountId],
+    true,
+  );
+
+  const categoryRows = db.runQuery<{ is_income: number }>(
+    `
+      SELECT is_income
+      FROM v_categories
+      WHERE id = ?
+    `,
+    [categoryId],
+    true,
+  );
+
+  const amount = rows[0]?.amount ?? 0;
+  return categoryRows[0]?.is_income === 0 ? -amount : amount;
+}
+
 async function applyCompanyBudgetAction({
   accountId,
   categoryId,
   month,
   action,
+  expectedAmount,
 }: {
   accountId: string;
   categoryId: string;
   month: string;
+  expectedAmount?: number;
   action:
     | 'copy-single-last'
+    | 'set-single-last-year-spent'
     | 'set-single-zero'
     | 'set-single-3-avg'
     | 'set-single-6-avg'
@@ -341,6 +371,27 @@ async function applyCompanyBudgetAction({
       [accountId, categoryId, targetMonth, amount],
       true,
     );
+  }
+
+  if (action === 'set-single-last-year-spent') {
+    if (!Number.isSafeInteger(expectedAmount)) {
+      throw APIError('A valid expected spending amount is required.');
+    }
+
+    const amount = await getCompanyLastYearSpending({
+      accountId,
+      categoryId,
+      month,
+    });
+
+    if (amount !== expectedAmount) {
+      throw APIError(
+        'Last year spending has changed. Reopen the menu to refresh the amount.',
+      );
+    }
+
+    await saveCompanyBudget(month, amount);
+    return null;
   }
 
   if (action === 'copy-single-last') {
@@ -482,8 +533,7 @@ async function applyCompanyBudgetAction({
       monthNumber <= 12;
       monthNumber++
     ) {
-      const targetMonth =
-        `${year}-${String(monthNumber).padStart(2, '0')}`;
+      const targetMonth = `${year}-${String(monthNumber).padStart(2, '0')}`;
 
       await saveCompanyBudget(targetMonth, amount);
     }
@@ -501,12 +551,7 @@ async function applyCompanyBudgetMonthAction({
 }: {
   accountId: string;
   month: string;
-  action:
-    | 'copy-last'
-    | 'set-zero'
-    | 'set-3-avg'
-    | 'set-6-avg'
-    | 'set-12-avg';
+  action: 'copy-last' | 'set-zero' | 'set-3-avg' | 'set-6-avg' | 'set-12-avg';
 }) {
   const categories = db.runQuery<{ id: string }>(
     `
@@ -600,9 +645,7 @@ async function getCompanyAnnualSpent({
         ${accountId ? 'AND t.account = ?' : ''}
       GROUP BY t.category
     `,
-    accountId
-      ? [startDate, endDate, accountId]
-      : [startDate, endDate],
+    accountId ? [startDate, endDate, accountId] : [startDate, endDate],
     true,
   );
 
@@ -680,8 +723,7 @@ async function setCompanyAnnualBudget({
   for (let monthNumber = 1; monthNumber <= 12; monthNumber++) {
     const month = `${year}-${String(monthNumber).padStart(2, '0')}`;
 
-    const amountForMonth =
-      monthlyAmount + (monthNumber === 12 ? remainder : 0);
+    const amountForMonth = monthlyAmount + (monthNumber === 12 ? remainder : 0);
 
     await setCompanyBudget({
       accountId,
@@ -829,9 +871,7 @@ async function trackingBudgetMonth({
       const budgeted = companyBudget(cat.id);
       const spent = filteredAmount(cat.id);
 
-      const leftover = cat.is_income
-        ? budgeted - spent
-        : budgeted + spent;
+      const leftover = cat.is_income ? budgeted - spent : budgeted + spent;
 
       companyCategoryValues.set(cat.id, {
         budgeted,
@@ -880,18 +920,9 @@ async function trackingBudgetMonth({
     const companyGroup = companyGroupValues.get(group.id);
 
     values = values.concat([
-      value(
-        `group-budget-${group.id}`,
-        companyGroup?.budgeted ?? 0,
-      ),
-      value(
-        `group-sum-amount-${group.id}`,
-        companyGroup?.spent ?? 0,
-      ),
-      value(
-        `group-leftover-${group.id}`,
-        companyGroup?.leftover ?? 0,
-      ),
+      value(`group-budget-${group.id}`, companyGroup?.budgeted ?? 0),
+      value(`group-sum-amount-${group.id}`, companyGroup?.spent ?? 0),
+      value(`group-leftover-${group.id}`, companyGroup?.leftover ?? 0),
     ]);
 
     const categories = group.categories ?? [];
@@ -900,20 +931,11 @@ async function trackingBudgetMonth({
       const companyCategory = companyCategoryValues.get(cat.id);
 
       values = values.concat([
-        value(
-          `budget-${cat.id}`,
-          companyCategory?.budgeted ?? 0,
-        ),
+        value(`budget-${cat.id}`, companyCategory?.budgeted ?? 0),
 
-        value(
-          `sum-amount-${cat.id}`,
-          companyCategory?.spent ?? 0,
-        ),
+        value(`sum-amount-${cat.id}`, companyCategory?.spent ?? 0),
 
-        value(
-          `leftover-${cat.id}`,
-          companyCategory?.leftover ?? 0,
-        ),
+        value(`leftover-${cat.id}`, companyCategory?.leftover ?? 0),
 
         value(`goal-${cat.id}`),
         value(`long-goal-${cat.id}`),

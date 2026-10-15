@@ -1,10 +1,11 @@
-// @ts-strict-ignore
-import { Select } from '@actual-app/components/select';
-import { Text } from '@actual-app/components/text';
 import React, { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import type { ComponentType } from 'react';
+
 import { Button } from '@actual-app/components/button';
+// @ts-strict-ignore
+import { Select } from '@actual-app/components/select';
 import { styles } from '@actual-app/components/styles';
+import { Text } from '@actual-app/components/text';
 import { View } from '@actual-app/components/view';
 import { send } from '@actual-app/core/platform/client/connection';
 import * as monthUtils from '@actual-app/core/shared/months';
@@ -12,6 +13,7 @@ import type {
   CategoryEntity,
   CategoryGroupEntity,
 } from '@actual-app/core/types/models';
+import { v4 as uuidv4 } from 'uuid';
 
 import {
   useBudgetActions,
@@ -23,6 +25,7 @@ import {
   useSaveCategoryMutation,
   useSortCategoriesMutation,
 } from '#budget';
+import { useAccounts } from '#hooks/useAccounts';
 import { useCategories } from '#hooks/useCategories';
 import { useGlobalPref } from '#hooks/useGlobalPref';
 import { useLocalPref } from '#hooks/useLocalPref';
@@ -30,7 +33,9 @@ import { useNavigate } from '#hooks/useNavigate';
 import { SheetNameProvider } from '#hooks/useSheetName';
 import { useSpreadsheet } from '#hooks/useSpreadsheet';
 import { useSyncedPref } from '#hooks/useSyncedPref';
-import { useAccounts } from '#hooks/useAccounts';
+import { pushModal } from '#modals/modalsSlice';
+import { addNotification } from '#notifications/notificationsSlice';
+import { useDispatch } from '#redux';
 
 import { AutoSizingBudgetTable } from './DynamicBudgetTable';
 import * as envelopeBudget from './envelope/EnvelopeBudgetComponents';
@@ -38,8 +43,6 @@ import { EnvelopeBudgetProvider } from './envelope/EnvelopeBudgetContext';
 import * as trackingBudget from './tracking/TrackingBudgetComponents';
 import { TrackingBudgetProvider } from './tracking/TrackingBudgetContext';
 import { prewarmAllMonths, prewarmMonth } from './util';
-import { pushModal } from '#modals/modalsSlice';
-import { useDispatch } from '#redux';
 
 export function Budget() {
   const currentMonth = monthUtils.currentMonth();
@@ -244,12 +247,7 @@ export function Budget() {
         month,
         amount: args.amount,
       }).then(() => {
-        void prewarmMonth(
-          budgetType,
-          spreadsheet,
-          month,
-          selectedAccountId,
-        );
+        void prewarmMonth(budgetType, spreadsheet, month, selectedAccountId);
       });
 
       return;
@@ -257,6 +255,7 @@ export function Budget() {
 
     const companyActions = [
       'copy-single-last',
+      'set-single-last-year-spent',
       'set-single-3-avg',
       'set-single-6-avg',
       'set-single-12-avg',
@@ -273,6 +272,58 @@ export function Budget() {
         categoryId: args.category,
         month,
         action: type,
+        ...(type === 'set-single-last-year-spent'
+          ? { expectedAmount: args.amount }
+          : {}),
+      })
+        .then(() => {
+          void prewarmAllMonths(
+            budgetType,
+            spreadsheet,
+            bounds,
+            startMonth,
+            selectedAccountId,
+            maxMonths,
+          );
+        })
+        .catch(error => {
+          if (type === 'set-single-last-year-spent') {
+            dispatch(
+              addNotification({
+                notification: {
+                  id: uuidv4(),
+                  type: 'error',
+                  message:
+                    "Budget not updated. Reopen the menu to refresh last year's spending.",
+                  pre: error instanceof Error ? error.message : undefined,
+                },
+              }),
+            );
+          } else {
+            console.error('Unable to apply company budget action:', error);
+          }
+        });
+
+      return;
+    }
+
+    const companyMonthActions = [
+      'copy-last',
+      'set-zero',
+      'set-3-avg',
+      'set-6-avg',
+      'set-12-avg',
+    ];
+
+    if (
+      budgetType === 'tracking' &&
+      selectedAccountId &&
+      companyMonthActions.includes(type)
+    ) {
+      void send('budget/company-budget-month-action', {
+        accountId: selectedAccountId,
+        month,
+        action: type,
       }).then(() => {
         void prewarmAllMonths(
           budgetType,
@@ -286,37 +337,6 @@ export function Budget() {
 
       return;
     }
-
-  const companyMonthActions = [
-    'copy-last',
-    'set-zero',
-    'set-3-avg',
-    'set-6-avg',
-    'set-12-avg',
-  ];
-
-  if (
-    budgetType === 'tracking' &&
-    selectedAccountId &&
-    companyMonthActions.includes(type)
-  ) {
-    void send('budget/company-budget-month-action', {
-      accountId: selectedAccountId,
-      month,
-      action: type,
-    }).then(() => {
-      void prewarmAllMonths(
-        budgetType,
-        spreadsheet,
-        bounds,
-        startMonth,
-        selectedAccountId,
-        maxMonths,
-      );
-    });
-
-    return;
-  }
 
     applyBudgetAction.mutate({ month, type, args });
   };
@@ -333,6 +353,7 @@ export function Budget() {
         onBudgetAction={onBudgetAction}
         onToggleSummaryCollapse={onToggleCollapse}
         canEditBudgeted={Boolean(selectedAccountId)}
+        selectedAccountId={selectedAccountId}
       >
         <AutoSizingBudgetTable
           type={budgetType}
@@ -413,9 +434,7 @@ export function Budget() {
               paddingBottom: 8,
             }}
           >
-            <Text style={{ fontWeight: 600 }}>
-              Company
-            </Text>
+            <Text style={{ fontWeight: 600 }}>Company</Text>
 
             <Select
               aria-label="Select company"
@@ -453,13 +472,10 @@ export function Budget() {
             >
               Annual Budget
             </Button>
-
           </View>
         )}
 
-        <View style={{ flex: 1 }}>
-          {table}
-        </View>
+        <View style={{ flex: 1 }}>{table}</View>
       </View>
     </SheetNameProvider>
   );
