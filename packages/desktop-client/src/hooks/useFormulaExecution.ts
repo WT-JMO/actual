@@ -53,6 +53,9 @@ function createFormulaQueryContext(): Required<FormulaQueryContext> {
     queryExtractTimeframeEndNames: new Set(),
     balanceOfNames: new Set(),
     budgetQueryRequests: new Map(),
+    companyBudgetRequests: new Map(),
+    companyBudgetPrefetch: new Map(),
+    companyBudgetErrors: new Map(),
     querySumPrefetch: new Map(),
     queryCountPrefetch: new Map(),
     queryExtractCategoriesPrefetch: new Map(),
@@ -225,6 +228,10 @@ export function useFormulaExecution(
         });
 
         await prefetchBudgetQueries(formulaQueryContext);
+        await prefetchCompanyBudgets(
+          formulaQueryContext,
+          currentAccounts ?? [],
+        );
 
         const cellValue = evaluateFormulaWithContext({
           formula,
@@ -381,6 +388,76 @@ async function prefetchBudgetQueries(
       formulaQueryContext.budgetQueryErrors.set(
         key,
         err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+}
+
+async function prefetchCompanyBudgets(
+  context: Required<FormulaQueryContext>,
+  accounts: SimpleAccount[],
+) {
+  if (context.companyBudgetRequests.size === 0) return;
+
+  const { list: categories } = await send('get-categories');
+  const cache = new Map<string, Map<string, number>>();
+
+  for (const [key, request] of context.companyBudgetRequests) {
+    try {
+      if (
+        !Number.isInteger(request.year) ||
+        request.year < 1900 ||
+        request.year > 2100
+      ) {
+        throw new Error('Invalid budget year');
+      }
+
+      const accountMatches = accounts.filter(
+        account => account.id === request.account,
+      );
+      const matchingAccounts = accountMatches.length
+        ? accountMatches
+        : accounts.filter(account => account.name === request.account);
+
+      if (matchingAccounts.length !== 1) {
+        throw new Error(`Company not found or ambiguous: ${request.account}`);
+      }
+
+      const categoryMatches = categories.filter(
+        category => category.id === request.category,
+      );
+      const matchingCategories = categoryMatches.length
+        ? categoryMatches
+        : categories.filter(category => category.name === request.category);
+
+      if (matchingCategories.length !== 1) {
+        throw new Error(`Category not found or ambiguous: ${request.category}`);
+      }
+
+      const accountId = matchingAccounts[0].id;
+      const categoryId = matchingCategories[0].id;
+      const cacheKey = JSON.stringify([accountId, request.year]);
+
+      let amounts = cache.get(cacheKey);
+      if (!amounts) {
+        const rows = await send('budget/company-annual-budget', {
+          accountId,
+          year: request.year,
+        });
+        amounts = new Map(rows.map(row => [row.categoryId, row.amount]));
+        cache.set(cacheKey, amounts);
+      }
+
+      context.companyBudgetPrefetch.set(
+        key,
+        integerToAmount(amounts.get(categoryId) ?? 0, 2),
+      );
+      context.companyBudgetErrors.delete(key);
+    } catch (error) {
+      context.companyBudgetPrefetch.delete(key);
+      context.companyBudgetErrors.set(
+        key,
+        error instanceof Error ? error.message : String(error),
       );
     }
   }

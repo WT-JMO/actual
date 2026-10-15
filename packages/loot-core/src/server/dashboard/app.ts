@@ -41,6 +41,7 @@ export function isWidgetType(
     'summary-card',
     'calendar-card',
     'formula-card',
+    'company-annual-budget-card',
     'custom-report',
     'sankey-card',
     'balance-forecast-card',

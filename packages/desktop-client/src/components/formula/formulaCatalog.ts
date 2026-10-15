@@ -185,6 +185,28 @@ export function getFormulaFunctionCatalog(): Record<
         { name: 'decimals', description: t('Decimals') },
       ],
     },
+    COMPANY_BUDGET: {
+      name: 'COMPANY_BUDGET',
+      category: 'query',
+      modes: ['query'],
+      description: t(
+        'Get the annual budget for a company and category. Returns the amount in currency units.',
+      ),
+      parameters: [
+        {
+          name: 'company',
+          description: t('Company account name or ID (string)'),
+        },
+        {
+          name: 'category',
+          description: t('Budget category name or ID (string)'),
+        },
+        {
+          name: 'year',
+          description: t('Budget year, for example 2026 (number)'),
+        },
+      ],
+    },
     BUDGET_QUERY: {
       name: 'BUDGET_QUERY',
       category: 'query',

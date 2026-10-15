@@ -24,6 +24,12 @@ export type BudgetQueryRequest = {
   endMonth: string;
 };
 
+export type CompanyBudgetRequest = {
+  account: string;
+  category: string;
+  year: number;
+};
+
 export type FormulaQueryContext = {
   queryNames?: Set<string>;
   queryCountNames?: Set<string>;
@@ -32,6 +38,9 @@ export type FormulaQueryContext = {
   queryExtractTimeframeEndNames?: Set<string>;
   balanceOfNames?: Set<string>;
   budgetQueryRequests?: Map<string, BudgetQueryRequest>;
+  companyBudgetRequests?: Map<string, CompanyBudgetRequest>;
+  companyBudgetPrefetch?: Map<string, number>;
+  companyBudgetErrors?: Map<string, string>;
   querySumPrefetch?: Map<string, number>;
   queryCountPrefetch?: Map<string, number>;
   queryExtractCategoriesPrefetch?: Map<string, string[]>;
@@ -334,6 +343,28 @@ export class CustomFunctionsPlugin extends FunctionPlugin {
     );
   }
 
+  companyBudget(ast: ProcedureAst, state: InterpreterState) {
+    return this.runFunction(
+      ast.args,
+      state,
+      this.metadata('COMPANY_BUDGET'),
+      (account: string, category: string, year: number) => {
+        const ctx = this.getFormulaQueryContext();
+        const request = { account, category, year };
+        const key = JSON.stringify([account, category, year]);
+
+        ctx?.companyBudgetRequests?.set(key, request);
+
+        const error = ctx?.companyBudgetErrors?.get(key);
+        if (error) {
+          return new CellError(ErrorType.VALUE, error);
+        }
+
+        return ctx?.companyBudgetPrefetch?.get(key) ?? 0;
+      },
+    );
+  }
+
   formatNumber(ast: ProcedureAst, state: InterpreterState) {
     const hasDecimalsArg = ast.args.length > 1;
     const hasThousandsSeparatorArg = ast.args.length > 2;
@@ -511,6 +542,14 @@ CustomFunctionsPlugin.implementedFunctions = {
       { argumentType: FunctionArgumentType.STRING },
     ],
   },
+  COMPANY_BUDGET: {
+    method: 'companyBudget',
+    parameters: [
+      { argumentType: FunctionArgumentType.STRING },
+      { argumentType: FunctionArgumentType.STRING },
+      { argumentType: FunctionArgumentType.NUMBER },
+    ],
+  },
   FORMATNUMBER: {
     method: 'formatNumber',
     parameters: [
@@ -581,6 +620,7 @@ export const customFunctionsTranslations = {
     QUERY_EXTRACT_TIMEFRAME_END: 'QUERY_EXTRACT_TIMEFRAME_END',
     QUERY_EXTRACT_TIMEFRAME_START: 'QUERY_EXTRACT_TIMEFRAME_START',
     BUDGET_QUERY: 'BUDGET_QUERY',
+    COMPANY_BUDGET: 'COMPANY_BUDGET',
     FORMATNUMBER: 'FORMATNUMBER',
     FORMATCURRENCY: 'FORMATCURRENCY',
   },

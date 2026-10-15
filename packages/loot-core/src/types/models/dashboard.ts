@@ -331,6 +331,14 @@ export type AgeOfMoneyWidget = AbstractWidget<
   } | null
 >;
 
+export type CompanyAnnualBudgetWidget = AbstractWidget<
+  'company-annual-budget-card',
+  {
+    name?: string;
+    year?: number;
+  } | null
+>;
+
 type SpecializedWidget =
   | NetWorthWidget
   | CashFlowWidget
@@ -342,6 +350,7 @@ type SpecializedWidget =
   | SummaryWidget
   | CalendarWidget
   | FormulaWidget
+  | CompanyAnnualBudgetWidget
   | SankeyWidget
   | AgeOfMoneyWidget
   | BalanceForecastWidget;

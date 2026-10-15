@@ -59,6 +59,7 @@ import { BalanceForecastCard } from './reports/BalanceForecastCard';
 import { BudgetAnalysisCard } from './reports/BudgetAnalysisCard';
 import { CalendarCard } from './reports/CalendarCard';
 import { CashFlowCard } from './reports/CashFlowCard';
+import { CompanyAnnualBudgetCard } from './reports/CompanyAnnualBudgetCard';
 import { CrossoverCard } from './reports/CrossoverCard';
 import { CustomReportListCards } from './reports/CustomReportListCards';
 import { FormulaCard } from './reports/FormulaCard';
@@ -297,8 +298,13 @@ export function Overview({ dashboard }: OverviewProps) {
     addDashboardWidgetMutation.mutate({
       widget: {
         type,
-        width: 4,
-        height: type === 'sankey-card' ? 3 : 2,
+        width: type === 'company-annual-budget-card' ? 12 : 4,
+        height:
+          type === 'company-annual-budget-card'
+            ? 4
+            : type === 'sankey-card'
+              ? 3
+              : 2,
         meta,
         dashboard_page_id: dashboard.id,
       },
@@ -651,6 +657,10 @@ export function Overview({ dashboard }: OverviewProps) {
                                 ]
                               : []),
                             {
+                              name: 'company-annual-budget-card' as const,
+                              text: t('Company annual budget'),
+                            },
+                            {
                               name: 'custom-report' as const,
                               text: t('New custom report'),
                             },
@@ -899,6 +909,15 @@ export function Overview({ dashboard }: OverviewProps) {
                             isEditing={isEditing}
                             meta={widget.meta}
                             firstDayOfWeekIdx={firstDayOfWeekIdx}
+                            onMetaChange={newMeta =>
+                              onMetaChange(item, newMeta)
+                            }
+                          />
+                        ) : widget.type === 'company-annual-budget-card' ? (
+                          <CompanyAnnualBudgetCard
+                            widgetId={item.i}
+                            isEditing={isEditing}
+                            meta={widget.meta}
                             onMetaChange={newMeta =>
                               onMetaChange(item, newMeta)
                             }
